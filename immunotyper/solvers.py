@@ -368,11 +368,13 @@ class HiGHSSolver(IlpSolverMeta):
     def __init__(self, name: str) -> None:
         self.highspy = importlib.import_module("highspy")
         self.h = self.highspy.Highs()
-        self.h.silent()  # suppress solver output by default
+        self.h.silent()
         self.INF = self.highspy.kHighsInf
         self._vars = {}  # name -> highs_var mapping
         self._var_types = {}  # var index -> type ('b', 'i', 'c')
         self._var_bounds = {}  # var index -> (lb, ub)
+        self._var_count = 0
+        self._constr_count = 0
 
     def _add_var(self, name: str, type: str, lb: int = 0, ub=None, *args, **kwargs):
         if type == "b":
@@ -384,6 +386,9 @@ class HiGHSSolver(IlpSolverMeta):
         self._vars[name] = v
         self._var_types[v.index] = type
         self._var_bounds[v.index] = (lb, ub)
+        self._var_count += 1
+        if self._var_count % 5000 == 0:
+            log.info(f"HiGHS model build: {self._var_count} variables added")
         return v
 
     def add_constr(self, *args, name=None, **kwargs):
@@ -391,6 +396,9 @@ class HiGHSSolver(IlpSolverMeta):
         # args[0] is a highs_linear_expression from >= / <= / == operators
         if args:
             self.h.addConstr(args[0])
+            self._constr_count += 1
+            if self._constr_count % 5000 == 0:
+                log.info(f"HiGHS model build: {self._constr_count} constraints added")
 
     def quicksum(self, expr):
         return sum(expr)
@@ -403,6 +411,8 @@ class HiGHSSolver(IlpSolverMeta):
         if objective is not None:
             self.objective = objective
 
+        log.info(f"HiGHS model built: {self._var_count} variables, {self._constr_count} constraints")
+
         if method == 'min':
             self.h.minimize(self.objective)
         else:
@@ -411,14 +421,21 @@ class HiGHSSolver(IlpSolverMeta):
         # Configure solver parameters
         self.h.setOptionValue("time_limit", float(time_limit))
         self.h.setOptionValue("threads", threads)
+
+        # Enable solver progress output
+        self.h.setOptionValue("output_flag", True)
+        self.h.setOptionValue("log_to_console", True)
+        self.h.setOptionValue("mip_report_level", 2)
+        self.h.setOptionValue("mip_min_logging_interval", 5.0)
         if log_path and log_path != "/dev/null":
             self.h.setOptionValue("log_file", log_path)
+
         if MIPGap:
             self.h.setOptionValue("mip_rel_gap", MIPGap)
         else:
             self.h.setOptionValue("mip_rel_gap", self.SOLUTION_PRECISION)
 
-        log.info("RUNNING MODEL (HiGHS)")
+        log.info(f"RUNNING MODEL (HiGHS) — time_limit={time_limit}s, mip_rel_gap={MIPGap or self.SOLUTION_PRECISION}, threads={threads}")
         self.h.run()
 
         model_status = self.h.getModelStatus()
