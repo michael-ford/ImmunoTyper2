@@ -4,7 +4,8 @@ from Bio.Seq import Seq
 from abc import ABC, abstractmethod
 from .common import log
 from itertools import combinations
-from collections import OrderedDict, Iterator, defaultdict
+from collections import OrderedDict, defaultdict
+from collections.abc import Iterator
 from math import sqrt
 import dill as pickle
 #

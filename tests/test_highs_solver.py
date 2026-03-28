@@ -260,3 +260,11 @@ def test_model_pattern_integration():
     for r in range(num_reads):
         assigned = sum(1 for c in range(num_candidates) if solver.get_value(read_assignments[r][c]))
         assert assigned <= 1, f"Read {r} assigned to multiple candidates"
+
+
+def test_implemented_solvers_includes_highs():
+    """Verify HiGHS appears in the CLI solver registry."""
+    from immunotyper.__main__ import implemented_solvers
+    assert 'highs' in implemented_solvers
+    from immunotyper.solvers import HiGHSSolver
+    assert implemented_solvers['highs'] is HiGHSSolver

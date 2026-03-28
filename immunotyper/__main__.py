@@ -7,14 +7,14 @@ from Bio import SeqIO
 from statistics import mean
 from .read_filter_classes import BowtieFlankingFilter
 from .candidate_builder_classes import BwaMappingsCandidateBuilder
-from .solvers import GurobiSolver, OrToolsSolver
+from .solvers import GurobiSolver, OrToolsSolver, HiGHSSolver
 from .models import ShortReadModelTotalErrorDiscardObj
 from .common import resource_path
 from .post_processing import PostProcessorModel
 from .multi_solution_analysis import MultiSolutionAnalysis
 
 
-implemented_solvers = {'gurobi': GurobiSolver, 'or-tools': OrToolsSolver}
+implemented_solvers = {'gurobi': GurobiSolver, 'or-tools': OrToolsSolver, 'highs': HiGHSSolver}
 
 implemented_models = {'ilp': ShortReadModelTotalErrorDiscardObj}
 
@@ -41,7 +41,7 @@ parser.add_argument('--hg37',
 
 parser.add_argument('--solver',
     help='Choose ilp solver',
-    choices=['gurobi', 'or-tools'], 
+    choices=['gurobi', 'or-tools', 'highs'],
     default='gurobi'
 )
 
@@ -162,7 +162,7 @@ def main():
 
     if '--solver' not in sys.argv:
         if args.gene_type.startswith('ig'):
-            args.solver = 'gurobi'
+            args.solver = 'highs'
         elif args.gene_type.startswith('tr'):
             args.solver = 'or-tools'
     
