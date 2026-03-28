@@ -443,6 +443,12 @@ class HiGHSSolver(IlpSolverMeta):
 
     def get_value(self, var):
         val = self.h.val(var)
+        # Handle linear expressions (e.g., copy_multiplier from quicksum)
+        if not hasattr(var, 'index'):
+            rounded = round(val)
+            if abs(val - rounded) < self.SOLUTION_PRECISION:
+                return int(rounded)
+            return val
         var_type = self._var_types.get(var.index, 'c')
         if var_type == 'b':
             return round(val) > 0
