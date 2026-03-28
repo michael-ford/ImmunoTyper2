@@ -360,3 +360,43 @@ class OrToolsSolver(IlpSolverMeta):
                 return x
         else:
             return x
+
+
+class HiGHSSolver(IlpSolverMeta):
+    """Wrapper for HiGHS MIP solver via highspy."""
+
+    def __init__(self, name: str) -> None:
+        self.highspy = importlib.import_module("highspy")
+        self.h = self.highspy.Highs()
+        self.h.silent()  # suppress solver output by default
+        self.INF = self.highspy.kHighsInf
+        self._vars = {}  # name -> highs_var mapping
+
+    def _add_var(self, name: str, type: str, lb: int = 0, ub=None, *args, **kwargs):
+        if type == "b":
+            v = self.h.addVariable(lb=0, ub=1, name=name, type=self.highspy.HighsVarType.kInteger)
+        elif type == "i":
+            v = self.h.addVariable(lb=lb, ub=ub, name=name, type=self.highspy.HighsVarType.kInteger)
+        else:
+            v = self.h.addVariable(lb=lb, ub=ub, name=name)
+        self._vars[name] = v
+        return v
+
+    def add_constr(self, *args, name=None, **kwargs):
+        raise NotImplementedError("Implemented in Task 3")
+
+    def quicksum(self, expr):
+        raise NotImplementedError("Implemented in Task 3")
+
+    def LinExpr(self, *args, **kwargs):
+        raise NotImplementedError("Implemented in Task 3")
+
+    def solve(self, *args, **kwargs):
+        raise NotImplementedError("Implemented in Task 4")
+
+    def get_value(self, var):
+        raise NotImplementedError("Implemented in Task 4")
+
+    @staticmethod
+    def var_name(var):
+        raise NotImplementedError("Implemented in Task 4")

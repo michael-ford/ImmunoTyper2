@@ -2,7 +2,22 @@
 # 786
 
 import os, sys
-import pkg_resources
+try:
+    import pkg_resources
+    def _resource_filename(package, key):
+        return pkg_resources.resource_filename(package, key)
+except ImportError:
+    import importlib.resources as _importlib_resources
+    def _resource_filename(package, key):
+        # Fallback for environments without pkg_resources
+        parts = package.split('.')
+        try:
+            ref = _importlib_resources.files(package)
+            return str(ref.joinpath(key))
+        except Exception:
+            # Best-effort path construction
+            base = os.path.join(os.path.dirname(__file__), *parts[1:])
+            return os.path.join(base, key)
 import logbook, logbook.more
 import tempfile
 from Bio.Seq import Seq
@@ -17,7 +32,7 @@ def resource_path(key, data_dir_path=DATA_DIR):
     Returns:
         str: Full path of the resource.
     """
-    return pkg_resources.resource_filename(data_dir_path, key)
+    return _resource_filename(data_dir_path, key)
 
 db_resource_path = lambda x: resource_path(x, 'immunotyper.data.allele_databases')
 # ... existing code ...
