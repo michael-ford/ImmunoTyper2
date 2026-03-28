@@ -177,3 +177,86 @@ def test_change_ub():
     solver.objective = -1 * x  # maximize x by minimizing -x
     solver.solve(time_limit=60, threads=1, log_path="/dev/null")
     assert abs(solver.get_value(x) - 5.0) < 0.01
+
+
+def test_model_pattern_integration():
+    """
+    Mimics the exact pattern from ShortReadModelTotalErrorDiscardObj._build():
+    - LinExpr() accumulation for objective
+    - Binary copy variables with one-hot constraint
+    - Read-assignment binary variables
+    - Pseudo-abs value constraints for depth error
+    - Quicksum over variable lists
+    """
+    from immunotyper.solvers import HiGHSSolver
+    solver = HiGHSSolver("test_model_pattern")
+
+    # Simulate 2 allele candidates, 3 reads
+    maxcopy = 4
+    num_reads = 3
+    num_candidates = 2
+
+    objective = solver.LinExpr()
+    objective_array = []
+
+    # Per-candidate: one-hot copy encoding (exactly like models.py constraint 1)
+    candidate_copies = []
+    candidate_copy_multipliers = []
+    for c in range(num_candidates):
+        copies = [solver.add_var(type='b', name=f'copies|{x}|cand{c}') for x in range(maxcopy + 1)]
+        copy_multiplier = solver.quicksum([i * copy_var for i, copy_var in enumerate(copies)])
+        solver.add_constr(solver.quicksum(copies) == 1, name=f"constraint_1-cand{c}")
+        candidate_copies.append(copies)
+        candidate_copy_multipliers.append(copy_multiplier)
+
+    # Per-read: assignment and discard variables
+    read_assignments = {}
+    for r in range(num_reads):
+        discard_var = solver.add_var(type='b', name=f'discard|read{r}')
+        discard_penalty = 5  # simplified
+        objective_array.append(discard_penalty * discard_var)
+
+        assignments = []
+        for c in range(num_candidates):
+            d_var = solver.add_var(type='b', name=f'D|read{r}|cand{c}')
+            distance = (r + 1) * (c + 1)  # simplified distance
+            objective = objective + distance * d_var
+            objective_array.append(distance * d_var)
+            assignments.append(d_var)
+
+        # Constraint: assigned to exactly one candidate or discarded
+        solver.add_constr(solver.quicksum(assignments) == 1 - discard_var, name=f'assign-read{r}')
+        read_assignments[r] = assignments
+
+    # Constraint 3 pattern: enforce assigned reads -> called allele
+    for c in range(num_candidates):
+        assignment_vars = [read_assignments[r][c] for r in range(num_reads)]
+        solver.add_constr(
+            solver.quicksum(candidate_copies[c][1:]) * num_reads >= solver.quicksum(assignment_vars),
+            name=f"constr_4-cand{c}"
+        )
+
+    # Pseudo-abs value constraint pattern (depth error)
+    for c in range(num_candidates):
+        exp_cov = 10.0
+        reads_covering = [read_assignments[r][c] for r in range(num_reads)]
+        depth_diff_array = list(reads_covering) + [-exp_cov * candidate_copy_multipliers[c]]
+
+        diff_abs = solver.add_var(name=f'diff_abs_cand{c}', lb=0, type='i')
+        solver.add_constr(diff_abs + solver.quicksum(depth_diff_array) >= 0, name=f'abs_1-cand{c}')
+        solver.add_constr(diff_abs - solver.quicksum(depth_diff_array) >= 0, name=f'abs_2-cand{c}')
+
+    solver.objective = solver.quicksum(objective_array)
+    status, obj_val = solver.solve(time_limit=60, threads=1, log_path="/dev/null")
+
+    assert status in ("optimal", "feasible")
+
+    # Verify one-hot: exactly one copy level selected per candidate
+    for c in range(num_candidates):
+        copy_values = [solver.get_value(v) for v in candidate_copies[c]]
+        assert sum(1 for v in copy_values if v) == 1, f"Candidate {c} copy one-hot violated: {copy_values}"
+
+    # Verify assignment: each read assigned to exactly one candidate or discarded
+    for r in range(num_reads):
+        assigned = sum(1 for c in range(num_candidates) if solver.get_value(read_assignments[r][c]))
+        assert assigned <= 1, f"Read {r} assigned to multiple candidates"
