@@ -371,6 +371,8 @@ class HiGHSSolver(IlpSolverMeta):
         self.h.silent()  # suppress solver output by default
         self.INF = self.highspy.kHighsInf
         self._vars = {}  # name -> highs_var mapping
+        self._var_types = {}  # var index -> type ('b', 'i', 'c')
+        self._var_bounds = {}  # var index -> (lb, ub)
 
     def _add_var(self, name: str, type: str, lb: int = 0, ub=None, *args, **kwargs):
         if type == "b":
@@ -380,6 +382,8 @@ class HiGHSSolver(IlpSolverMeta):
         else:
             v = self.h.addVariable(lb=lb, ub=ub, name=name)
         self._vars[name] = v
+        self._var_types[v.index] = type
+        self._var_bounds[v.index] = (lb, ub)
         return v
 
     def add_constr(self, *args, name=None, **kwargs):
@@ -395,12 +399,67 @@ class HiGHSSolver(IlpSolverMeta):
         # Return 0 as the identity element for addition with highs_var expressions
         return 0
 
-    def solve(self, *args, **kwargs):
-        raise NotImplementedError("Implemented in Task 4")
+    def solve(self, objective=None, method='min', threads=6, time_limit=4000, log_path=None, MIPGap=None):
+        if objective is not None:
+            self.objective = objective
+
+        if method == 'min':
+            self.h.minimize(self.objective)
+        else:
+            self.h.maximize(self.objective)
+
+        # Configure solver parameters
+        self.h.setOptionValue("time_limit", float(time_limit))
+        self.h.setOptionValue("threads", threads)
+        if log_path and log_path != "/dev/null":
+            self.h.setOptionValue("log_file", log_path)
+        if MIPGap:
+            self.h.setOptionValue("mip_rel_gap", MIPGap)
+        else:
+            self.h.setOptionValue("mip_rel_gap", self.SOLUTION_PRECISION)
+
+        log.info("RUNNING MODEL (HiGHS)")
+        self.h.run()
+
+        model_status = self.h.getModelStatus()
+        STATUS_MAP = {
+            self.highspy.HighsModelStatus.kOptimal: "optimal",
+            self.highspy.HighsModelStatus.kInfeasible: "infeasible",
+            self.highspy.HighsModelStatus.kUnbounded: "unbounded",
+            self.highspy.HighsModelStatus.kUnboundedOrInfeasible: "infeasible",
+            self.highspy.HighsModelStatus.kObjectiveBound: "objective_bound",
+            self.highspy.HighsModelStatus.kObjectiveTarget: "objective_target",
+            self.highspy.HighsModelStatus.kSolutionLimit: "solution_limit",
+            self.highspy.HighsModelStatus.kTimeLimit: "time_limit",
+            self.highspy.HighsModelStatus.kIterationLimit: "iteration_limit",
+        }
+        status = STATUS_MAP.get(model_status, f"unknown_{model_status}")
+
+        if status == "infeasible":
+            raise NoSolutionsError(f"HiGHS status: {status}")
+
+        _, obj_val = self.h.getInfoValue("objective_function_value")
+        return status, obj_val
 
     def get_value(self, var):
-        raise NotImplementedError("Implemented in Task 4")
+        val = self.h.val(var)
+        var_type = self._var_types.get(var.index, 'c')
+        if var_type == 'b':
+            return round(val) > 0
+        elif var_type == 'i':
+            return int(round(val))
+        else:
+            return val
 
     @staticmethod
     def var_name(var):
-        raise NotImplementedError("Implemented in Task 4")
+        return var.name
+
+    def update(self):
+        # HiGHS doesn't use lazy updates — this is a no-op for API compatibility
+        pass
+
+    def changeUb(self, var, ub):
+        lb = self._var_bounds.get(var.index, (0, None))[0]
+        self.h.changeColBounds(var, lb, ub)
+        self._var_bounds[var.index] = (lb, ub)
