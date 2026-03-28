@@ -383,13 +383,17 @@ class HiGHSSolver(IlpSolverMeta):
         return v
 
     def add_constr(self, *args, name=None, **kwargs):
-        raise NotImplementedError("Implemented in Task 3")
+        # highspy accepts constraint expressions directly from operator overloading
+        # args[0] is a highs_linear_expression from >= / <= / == operators
+        if args:
+            self.h.addConstr(args[0])
 
     def quicksum(self, expr):
-        raise NotImplementedError("Implemented in Task 3")
+        return sum(expr)
 
     def LinExpr(self, *args, **kwargs):
-        raise NotImplementedError("Implemented in Task 3")
+        # Return 0 as the identity element for addition with highs_var expressions
+        return 0
 
     def solve(self, *args, **kwargs):
         raise NotImplementedError("Implemented in Task 4")
