@@ -1,6 +1,9 @@
 import os
 from .models import ModelMeta
-from gurobipy import Model as GurobiSolver
+try:
+    from gurobipy import Model as GurobiSolver
+except ImportError:
+    GurobiSolver = None
 from .common import log, resource_path
 from collections import defaultdict
 from typing import List, Dict, Tuple, Optional, Union, Any
