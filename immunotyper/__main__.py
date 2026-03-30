@@ -155,6 +155,18 @@ parser.add_argument(
     help='Do not compute multi band solutions and write confidence metric'
 )
 
+parser.add_argument(
+    '--highs_param',
+    action='append',
+    default=[],
+    help='Custom HiGHS parameter as key=value (can repeat). E.g. --highs_param mip_heuristic_effort=0.5'
+)
+
+parser.add_argument(
+    '--warm_start',
+    action='store_true',
+    help='Use greedy heuristic to construct a warm start solution for the MIP solver'
+)
 
 
 def main():
@@ -169,7 +181,21 @@ def main():
     # Log which solver is being used
     log.info(f"Using {args.solver} solver for {args.gene_type} gene type")
 
-    run_immunotyper(args.bam_path, args.ref, args.gene_type, args.hg37, args.solver, args.output_dir, args.landmark_groups, args.landmarks_per_group, args.max_copy, args.stdev_coeff, args.seq_error_rate, args.write_cache_path, args.solver_time_limit, args.threads, args.save_extracted_reads, args.solution_precision, args.no_vcf, args.no_read_assignment, args.no_confidence_metric)
+    # Parse --highs_param key=value pairs
+    highs_params = {}
+    for param in args.highs_param:
+        if '=' in param:
+            k, v = param.split('=', 1)
+            try:
+                v = int(v)
+            except ValueError:
+                try:
+                    v = float(v)
+                except ValueError:
+                    pass
+            highs_params[k] = v
+
+    run_immunotyper(args.bam_path, args.ref, args.gene_type, args.hg37, args.solver, args.output_dir, args.landmark_groups, args.landmarks_per_group, args.max_copy, args.stdev_coeff, args.seq_error_rate, args.write_cache_path, args.solver_time_limit, args.threads, args.save_extracted_reads, args.solution_precision, args.no_vcf, args.no_read_assignment, args.no_confidence_metric, highs_params=highs_params, warm_start=args.warm_start)
 
 
 def run_immunotyper(bam_path: str,  ref: str='',
@@ -189,8 +215,10 @@ def run_immunotyper(bam_path: str,  ref: str='',
                                     solution_precision: int=None,
                                     no_vcf: bool=False,
                                     no_read_assignment: bool=False,
-                                    no_confidence_metric: bool=False):
-        
+                                    no_confidence_metric: bool=False,
+                                    highs_params: dict=None,
+                                    warm_start: bool=False):
+
     """Driver method to run immunotyper and output calls
 
     Args:
@@ -282,7 +310,14 @@ def run_immunotyper(bam_path: str,  ref: str='',
     if solution_precision:
         model.SOLUTION_PRECISION = float(f"1e-{solution_precision}")
 
-    model.solve(time_limit=solver_time_limit*3600, threads=threads, log_path=os.path.join(output_dir, f'{output_prefix}-{gene_type}-{solver}.log'))
+    # Construct warm start if requested
+    warm_start_values = None
+    if warm_start:
+        from .warmstart import construct_greedy_solution
+        log.info("Constructing greedy warm start solution")
+        warm_start_values = construct_greedy_solution(model, positive, candidates, maxcopy=max_copy)
+
+    model.solve(time_limit=solver_time_limit*3600, threads=threads, log_path=os.path.join(output_dir, f'{output_prefix}-{gene_type}-{solver}.log'), highs_params=highs_params, warm_start_values=warm_start_values)
 
 
     # Write outputs

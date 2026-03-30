@@ -700,7 +700,7 @@ class HiGHSSolver(IlpSolverMeta):
 
         log.info(f"HiGHS model materialized: {num_col} cols, {num_row} rows, {total_nz} nonzeros")
 
-    def solve(self, objective=None, method='min', threads=6, time_limit=4000, log_path=None, MIPGap=None):
+    def solve(self, objective=None, method='min', threads=6, time_limit=4000, log_path=None, MIPGap=None, highs_params=None, warm_start_values=None):
         if objective is not None:
             self.objective = objective
 
@@ -723,6 +723,17 @@ class HiGHSSolver(IlpSolverMeta):
             self.h.setOptionValue("mip_rel_gap", MIPGap)
         else:
             self.h.setOptionValue("mip_rel_gap", self.SOLUTION_PRECISION)
+
+        # Apply custom HiGHS parameters (for solver tuning experiments)
+        if highs_params:
+            for key, value in highs_params.items():
+                log.info(f"HiGHS custom param: {key}={value}")
+                self.h.setOptionValue(key, value)
+
+        # Apply warm start if provided
+        if warm_start_values:
+            log.info(f"Setting warm start ({len(warm_start_values)} values)")
+            self.h.setSolution(warm_start_values, [])
 
         log.info(f"RUNNING MODEL (HiGHS) — time_limit={time_limit}s, mip_rel_gap={MIPGap or self.SOLUTION_PRECISION}, threads={threads}")
         self.h.run()
