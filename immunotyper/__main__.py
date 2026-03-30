@@ -259,6 +259,17 @@ def run_immunotyper(bam_path: str,  ref: str='',
     candidates = candidate_builder.make_candidates(positive)
     log.info(f"Generated {len(candidates)} candidate alleles")
 
+    # Preprocess: reduce ILP size before model build
+    from .preprocessing import (analyze_components, log_read_ambiguity,
+                                preassign_unambiguous_reads, prune_low_support_candidates,
+                                prune_distant_pairs)
+    log_read_ambiguity(positive, candidates)
+    components = analyze_components(positive, candidates)
+    positive, candidates = prune_low_support_candidates(positive, candidates, min_reads=3)
+    positive, candidates = prune_distant_pairs(positive, candidates,
+                                               seq_error_rate=seq_error_rate)
+    positive, candidates, preassigned = preassign_unambiguous_reads(positive, candidates)
+
     # Build and run model
     log.info("Building and solving optimization model")
     model = implemented_models['ilp'](implemented_solvers[solver], num_landmarks=landmark_groups*landmarks_per_group,

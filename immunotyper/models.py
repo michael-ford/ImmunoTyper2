@@ -128,7 +128,7 @@ class ShortReadModelTotalErrorDiscardObj(ModelMeta):
         for allele_candidate in candidates:
             allele_candidate.copies = [self.add_var(type='b', name=f'copies|{x}|{allele_candidate.id}') for x in range(self.maxcopy+1)]
             allele_candidate.copy_multipler = self.quicksum([i*copy_var for i, copy_var in enumerate(allele_candidate.copies)])
-            
+
             #constraint (1) - One-hot encoding of all possible copy numbers for each allele
             self.add_constr(self.quicksum(allele_candidate.copies) == 1, name=f"constraint_1-{allele_candidate.id}")
 
@@ -137,7 +137,7 @@ class ShortReadModelTotalErrorDiscardObj(ModelMeta):
             for read in allele_candidate.reads: # all reads that have allele_candidate as a candidate
                 if read.id not in already_seen_reads:
                     already_seen_reads.add(read.id)
-                    
+
                     # make discard variables
                     read.discard_var = self.add_var(type='b', name='discard|{}'.format(read.id))
                     read.discard_penalty = round(read.primary_mapping.query_alignment_length*self.sequencing_error_rate*self.discard_penalty_multiplier)
@@ -159,33 +159,38 @@ class ShortReadModelTotalErrorDiscardObj(ModelMeta):
                 read.assignment[allele_candidate.id] = d_var
                 objective  = objective + read.get_distance(allele_candidate)*d_var
                 objective_array.append(read.get_distance(allele_candidate)*d_var)
-            
+
             # constraint (3): enforce assigned reads -> called allele
             self.add_constr(self.quicksum(allele_candidate.copies[1:])*len(reads) >= self.quicksum(allele_candidate.assignment.values()), name=f"constr_4-{allele_candidate.id}")
 
             # calculate depth error for allele_candidate
             allele_candidate.read_coverage = {}
             for i, group in enumerate(allele_candidate.landmark_groups):
-                
+
                 depth_error = self.LinExpr()
-                depth_error_array = []          # for linear expression suming expected/assigned depth differences for landmarks in group  
-                
+                depth_error_array = []          # for linear expression suming expected/assigned depth differences for landmarks in group
+
                 lambdas = []
-                
+
                 for j, landmark in enumerate(group):
 
                     depth_diff = self.LinExpr()
                     depth_diff_array = []               # for linear expression summing expected/assigned depth differences for this landmark
 
                     # add assigned read coverage for landmark to depth_diff_array
-                    reads_covering_pos = [r.assignment[allele_candidate.id] for r in landmark.reads]		# get d_var for reads covering pos		
-                    allele_candidate.read_coverage[landmark.pos] = reads_covering_pos                       # save as attr for post analysis                    
+                    reads_covering_pos = [r.assignment[allele_candidate.id] for r in landmark.reads]		# get d_var for reads covering pos
+                    allele_candidate.read_coverage[landmark.pos] = reads_covering_pos                       # save as attr for post analysis
+                    # Preassigned coverage: only active when candidate is called (copy > 0)
+                    _preassigned = getattr(landmark, 'preassigned_coverage', 0)
+                    _called_indicator = self.quicksum(allele_candidate.copies[1:])  # 1 if called, 0 if not
                     for r in reads_covering_pos:
                         depth_diff = depth_diff + r
                         depth_diff_array.append(r)
-                    
+
                     # add expected depth to depth_diff_array
-                    depth_diff = depth_diff + -landmark.exp_cov*allele_candidate.copy_multipler
+                    # preassigned coverage is conditional on candidate being called
+                    if _preassigned > 0:
+                        depth_diff_array.append(_preassigned * _called_indicator)
                     depth_diff_array.append(-landmark.exp_cov*allele_candidate.copy_multipler)
 
                     # make pseudo-abs value of depth_diff_array
@@ -196,21 +201,21 @@ class ShortReadModelTotalErrorDiscardObj(ModelMeta):
                     depth_error = depth_error + diff_abs
                     depth_error_array.append(diff_abs)          # add this groups depth error to allele sum
 
-                    # constraint 5
-                    self.add_constr(self.quicksum(reads_covering_pos) >= self.min_landmark_depth*landmark.exp_cov*allele_candidate.copy_multipler, name=f"constr_5-{allele_candidate.id}_group{i}_landmark{j}")
-                    
-                    lambdas.append([self.stdev_coefficient*x for x in landmark.stdevs])
-                
+                    # constraint 5 (include preassigned coverage, conditional on being called)
+                    self.add_constr(self.quicksum(reads_covering_pos) + _preassigned * _called_indicator >= self.min_landmark_depth*landmark.exp_cov*allele_candidate.copy_multipler, name=f"constr_5-{allele_candidate.id}_group{i}_landmark{j}")
 
-                
+                    lambdas.append([self.stdev_coefficient*x for x in landmark.stdevs])
+
+
+
                 # constrain depth error sum for this group by sum of standard deviation difference allowance across all landmarks in group
                 lambdas = zip(*lambdas) # group landmark stdev allowances by copy number
                 self.add_constr(self.quicksum(depth_error_array) <= (self.quicksum([c*sum(lam) for c, lam in zip(allele_candidate.copies, lambdas)])), name=f'depth_error-group_{i}-{allele_candidate.id}')
 
             allele_candidate.depth_error = depth_error
             self.depth_errors[allele_candidate.id] = depth_error
-        
-        
+
+
         for read in reads:
             # add constraint 2: prevent discarded reads from being assigned and enforce assignment to at most 1 copy
             try:
