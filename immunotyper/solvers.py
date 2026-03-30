@@ -733,7 +733,14 @@ class HiGHSSolver(IlpSolverMeta):
         # Apply warm start if provided
         if warm_start_values:
             log.info(f"Setting warm start ({len(warm_start_values)} values)")
-            self.h.setSolution(warm_start_values, [])
+            sol = self.highspy.HighsSolution()
+            sol.value_valid = True
+            sol.dual_valid = False
+            sol.col_value = warm_start_values
+            sol.col_dual = []
+            sol.row_value = []
+            sol.row_dual = []
+            self.h.setSolution(sol)
 
         log.info(f"RUNNING MODEL (HiGHS) — time_limit={time_limit}s, mip_rel_gap={MIPGap or self.SOLUTION_PRECISION}, threads={threads}")
         self.h.run()
